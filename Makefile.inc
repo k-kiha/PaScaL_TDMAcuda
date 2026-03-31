@@ -21,7 +21,8 @@
 #   FC = mpifort
 #   FC = nvfortran -Mmpi
 # ----------------------------------------------------------------------
-FC     = mpif90
+#FC     = mpif90
+FC     = ftn
 AR     = ar
 RANLIB = ranlib
 
@@ -39,7 +40,8 @@ RANLIB = ranlib
 #   These flags are automatically used by src/Makefile and examples/Makefile.
 # ----------------------------------------------------------------------
 FLAG      = -O3
-CUDAFLAG  = -cuda
+#CUDAFLAG  = -cuda
+CUDAFLAG  = -cuda -gpu=cc90,cuda12.8
 
 
 # ----------------------------------------------------------------------

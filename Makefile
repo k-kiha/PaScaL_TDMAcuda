@@ -47,7 +47,8 @@ example:
 clean:
 	$(MAKE) -C src clean
 	$(MAKE) -C examples clean
-	rm -f ./lib/* ./include/* ./run/*
+	rm -f ./lib/* ./include/*
+	find ./run -type f ! -name 'job.sh' -delete
 
 
 # ----------------------------------------------------------------------

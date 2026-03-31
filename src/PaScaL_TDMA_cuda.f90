@@ -732,8 +732,8 @@ contains
         !     call MPI_IRECV(B(recvdisp(i)),recvcount(i),MPI_DOUBLE,i,111,communicator,requestB(i),ierr)
         ! end do
         
-        call MPI_WAITALL(nprocs, requestA, MPI_STATUSES_IGNORE, ierr)
-        call MPI_WAITALL(nprocs, requestB, MPI_STATUSES_IGNORE, ierr)
+        ! call MPI_WAITALL(nprocs, requestA, MPI_STATUSES_IGNORE, ierr)
+        ! call MPI_WAITALL(nprocs, requestB, MPI_STATUSES_IGNORE, ierr)
         
     end subroutine pascal_a2av
 
