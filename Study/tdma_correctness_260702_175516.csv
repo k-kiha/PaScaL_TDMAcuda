@@ -1,0 +1,2 @@
+solver,implementation,nranks,n1,n2,n3,nsys,nrow_min,nrow_max,mpi_mode,solution_sum,solution_l2,solution_linf,sample_z0,sample_zmid,sample_zlast,expected_value,max_abs_error_to_expected
+tdma,cuda-cxx,2,128,128,2048,16384,1024,1024,device,33554432,5792.618751480197,1.000000000000057,0.9999999999999991,0.9999999999999664,1.000000000000001,1,2.94542168433054e-13
