@@ -34,6 +34,62 @@ For the CUDA C++ driver, MPI device-buffer communication is the default. Set
 `MPI_MODE=host` in `run_study_sweep.sh` only when host-staging fallback is
 needed.
 
+## Study Presets
+
+The default study preset is `portfolio`:
+
+```bash
+./run_study_sweep.sh
+```
+
+It runs a portfolio-oriented case matrix for:
+
+- correctness,
+- compute/communication phase breakdown,
+- strong scaling with `np=2` as the scaling baseline,
+- weak scaling with separate `nrow` and `nsys` growth paths,
+- `n1*n2` sensitivity,
+- `n3/rank` sensitivity,
+- CUDA C++ MPI mode comparison between `device` and `host`.
+
+Use `quick` for a small smoke run:
+
+```bash
+STUDY_PRESET=quick ./run_study_sweep.sh
+```
+
+Use `custom` for direct `NP_LIST x SIZE_LIST` execution:
+
+```bash
+STUDY_PRESET=custom \
+NP_LIST="2 4 8" \
+SIZE_LIST="128,128,4096" \
+./run_study_sweep.sh
+```
+
+Before running a long server job, inspect the planned commands and generated
+case manifest:
+
+```bash
+DRY_RUN=1 ./run_study_sweep.sh
+```
+
+Important defaults:
+
+```text
+BASELINE_NP=2
+SCALING_NP_LIST="2 4 8"
+ITERATIONS=10
+CXX_DEFAULT_MPI_MODES="device"
+MPI_MODE_LIST="device host"
+```
+
+For 8-GPU H200 runs, set visible devices explicitly when desired:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 ./run_study_sweep.sh
+```
+
 ## Study Outputs
 
 `run_study_sweep.sh` writes one output set per run:
@@ -42,6 +98,7 @@ needed.
 tdma_total_profile_YYMMDD_HHMMSS.csv
 tdma_correctness_YYMMDD_HHMMSS.csv
 tdma_environment_YYMMDD_HHMMSS.txt
+tdma_case_manifest_YYMMDD_HHMMSS.csv
 ```
 
 `tdma_total_profile_*.csv` stores every measured iteration as raw data. Do not
@@ -83,12 +140,6 @@ Fortran original and the CUDA C++ port.
 and sweep settings used for the run. Keep this file with the CSV outputs when
 moving results between the server and local machine.
 
-Example:
-
-```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 \
-NP_LIST="1 2 4" \
-SIZE_LIST="64,64,2048 128,128,2048 128,128,4096" \
-ITERATIONS=10 \
-./run_study_sweep.sh
-```
+`tdma_case_manifest_*.csv` records why each case exists. Analysis scripts
+should use it to identify strong-scaling, weak-scaling, `nsys`, `nrow`, and
+MPI-mode comparison groups.
