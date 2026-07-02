@@ -30,7 +30,8 @@ CORRECTNESS_OUT=${CORRECTNESS_OUT:-"$SCRIPT_DIR/tdma_correctness_${TIMESTAMP}.cs
 ENV_OUT=${ENV_OUT:-"$SCRIPT_DIR/tdma_environment_${TIMESTAMP}.txt"}
 MANIFEST_OUT=${MANIFEST_OUT:-"$SCRIPT_DIR/tdma_case_manifest_${TIMESTAMP}.csv"}
 
-# Custom preset keeps the old simple NP_LIST x SIZE_LIST behavior.
+# Custom preset runs the explicit NP_LIST x SIZE_LIST matrix supplied by the
+# user.
 NP_LIST=${NP_LIST:-"2 4 8"}
 SIZE_LIST=${SIZE_LIST:-"128,128,4096"}
 
@@ -50,11 +51,11 @@ Usage:
   STUDY_PRESET=custom NP_LIST="2 4 8" SIZE_LIST="128,128,4096" ./run_study_sweep.sh
 
 Study presets:
-  portfolio  Full portfolio study matrix:
+  portfolio  Full benchmark study matrix:
              correctness, phase breakdown, strong scaling, weak scaling,
              nsys/nrow sensitivity, MPI device-vs-host comparison.
-  quick      Small smoke version of the portfolio matrix.
-  custom     Old-style NP_LIST x SIZE_LIST execution.
+  quick      Small validation subset of the benchmark matrix.
+  custom     Custom NP_LIST x SIZE_LIST execution.
 
 Important variables:
   BASELINE_NP=2
@@ -156,7 +157,7 @@ build_custom_cases() {
     for np in $NP_LIST; do
         for size in $SIZE_LIST; do
             add_size_case "custom" "$np" "$size" "custom" \
-                "$CXX_DEFAULT_MPI_MODES" "user_supplied_case"
+                "$CXX_DEFAULT_MPI_MODES" "custom_case"
         done
     done
 }

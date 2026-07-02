@@ -16,7 +16,8 @@ Purpose:
 
 Preserved:
   - all *.csv files
-  - Study/tdma_environment_*.txt files
+  - Study/result/ report data, figures, and tables
+  - Study/tdma_environment_*.txt files from fresh runs
   - profile_results/ directories and their contents
   - source files, scripts, Makefiles, README files, and git metadata
 USAGE

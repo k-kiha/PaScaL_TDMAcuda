@@ -1,19 +1,22 @@
-# PaScaL_TDMAcuda Study Repository
+# CUDA C++ Port and Multi-GPU Study of PaScaL TDMA
 
-This repository is organized to study a CUDA Fortran + MPI tridiagonal solver
-and its CUDA C++ port side by side.
+This repository keeps the original CUDA Fortran + MPI TDMA solver, a CUDA C++
+port, and matched benchmark drivers side by side. The goal is to preserve the
+solver's MPI-parallel algorithmic structure while making the port, validation,
+and multi-GPU performance analysis easy to inspect.
 
 ## Layout
 
 ```text
 Fortran_Original/  Original CUDA Fortran + MPI implementation
-CUDA_CXX_Port/     CUDA C++ / MPI port
-Study/             Matched drivers, sweep scripts, and CSV results
+CUDA_CXX_Port/     CUDA C++ / MPI port of the original solver flow
+Study/             Matched drivers, sweep script, report, and result data
 scripts/           Repository maintenance helpers
 ```
 
-The purpose of this layout is to keep the original solver, the CUDA C++ port,
-and the comparison experiments separate.
+The layout separates the reference implementation, the CUDA C++ port, and the
+comparison study so that code changes and benchmark evidence can be reviewed
+independently.
 
 ## Build
 
@@ -77,14 +80,18 @@ For multiple cases:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
+STUDY_PRESET=custom \
 NP_LIST="1 2 4" \
 SIZE_LIST="64,64,2048 128,128,2048 128,128,4096" \
 ITERATIONS=10 \
 ./Study/run_study_sweep.sh
 ```
 
-Study timing, correctness, and environment files are written directly under
-`Study/`.
+Omit `STUDY_PRESET=custom` to run the prepared benchmark study matrix.
+
+New sweep runs write timing, correctness, manifest, and environment files under
+`Study/` by default. Curated report inputs and generated figures/tables are kept
+under `Study/result/`.
 
 Set `MPI_MODE=host` explicitly if the CUDA-aware MPI device path is not usable
 on a target system.
@@ -98,4 +105,5 @@ scripts/clean_for_sync.sh
 scripts/clean_for_sync.sh --apply
 ```
 
-The cleanup script preserves CSV files.
+The cleanup script removes generated binaries and intermediate build outputs.
+It preserves CSV data and the curated report assets under `Study/result/`.

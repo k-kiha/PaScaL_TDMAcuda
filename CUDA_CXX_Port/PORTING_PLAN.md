@@ -8,7 +8,7 @@ reference report: `../../brain/4_260630_PaScaL_TDMAcuda_analysis.md`
 
 - NVIDIA가 공식 지원하는 CUDA C++ runtime API와 `nvcc`를 기준으로 한다.
 - 원본 CUDA Fortran의 알고리즘, MPI all-to-all flow, device buffer layout, column-major 2D indexing을 1차 포팅에서 보존한다.
-- CUDA 지원 하드웨어가 현재 없으므로 이번 단계는 소스 작성과 정적 구조 검토까지 수행한다. 실제 GPU 실행 검증은 NVCC + CUDA-aware MPI + GPU 환경에서 따로 해야 한다.
+- 초기 포팅 작성 단계에서는 로컬 CUDA 하드웨어가 없었기 때문에 소스 작성과 정적 구조 검토를 먼저 수행했다. 이후 실제 GPU 실행 검증은 NVCC + CUDA-aware MPI + GPU 환경에서 수행하는 흐름으로 둔다.
 
 ## 2. 원본에서 보존할 핵심 계약
 
@@ -72,7 +72,7 @@ C++에서는 RAII를 적용해 `PascalTdmaPlan` destructor가 device allocations
 device pointer -> MPI_Alltoallv -> device pointer
 ```
 
-현재 개발 머신은 CUDA 하드웨어가 없고, target MPI의 CUDA-aware 지원도 여기서 확인할 수 없다. 따라서 host staging fallback을 함께 둔다.
+초기 개발 환경에서는 CUDA 하드웨어와 target MPI의 CUDA-aware 지원을 직접 확인할 수 없었다. 따라서 device-buffer MPI 경로와 함께 host staging fallback을 둔다.
 
 ```text
 device -> host staging -> MPI_Alltoallv -> host staging -> device
@@ -89,10 +89,10 @@ device -> host staging -> MPI_Alltoallv -> host staging -> device
 
 - `NVCC ?= nvcc`
 - `MPICXX ?= mpicxx`
-- `CUDA_ARCH ?= 80`
+- `CUDA_ARCH ?= 90` for the H200 validation system
 - `nvcc -ccbin $(MPICXX) ...`
 
-현 로컬에는 `mpicxx`는 있으나 `nvcc`가 확인되지 않았다. 따라서 Makefile은 작성하되, 실제 build는 CUDA toolkit이 있는 환경에서 수행한다.
+H200 검증 환경에서는 `CUDA_ARCH=90`을 사용한다. 다른 GPU에서는 target architecture에 맞게 `CUDA_ARCH`를 조정한다.
 
 ## 5. 자체 검토와 수정 사항
 
@@ -110,8 +110,8 @@ device -> host staging -> MPI_Alltoallv -> host staging -> device
 
 ### 검토 3
 
-- 문제: 현재 CUDA hardware가 없어서 correctness test를 돌릴 수 없다.
-- 판단: CUDA runtime error check와 명확한 example을 제공하고, 실제 검증은 target 환경으로 넘긴다.
+- 문제: 초기 로컬 작성 단계에서는 CUDA hardware가 없어서 correctness test를 돌릴 수 없었다.
+- 판단: CUDA runtime error check와 명확한 example을 제공하고, 실제 검증은 target GPU 환경에서 수행한다.
 - 수정: 모든 CUDA API call은 `PASCAL_TDMA_CUDA_CHECK`로 감싼다. MPI all-to-all 전 stream synchronize를 강제한다.
 
 ### 결론

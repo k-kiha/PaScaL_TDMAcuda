@@ -1,7 +1,9 @@
 # PaScaL_TDMAcuda CUDA C++ Port
 
-This directory is a first-pass CUDA C++ port of
-`../Fortran_Original/src/PaScaL_TDMA_cuda.f90`.
+This directory contains a CUDA C++ port of
+`../Fortran_Original/src/PaScaL_TDMA_cuda.f90`. The port keeps the original
+MPI-parallel TDMA solver flow and exposes a C++/CUDA interface suitable for
+matched validation and performance studies.
 
 ## Scope
 
@@ -22,13 +24,15 @@ export PASCAL_TDMA_MPI_MODE=host
 
 ## Build
 
-Requires NVIDIA CUDA Toolkit, `nvcc`, and MPI.
+Requires the NVIDIA CUDA Toolkit, `nvcc`, and MPI.
 
 ```bash
-make CUDA_ARCH=80
+make CUDA_ARCH=90
 ```
 
-If your MPI wrapper is not `mpicxx`:
+`CUDA_ARCH=90` matches the H200 validation system used for the current study.
+Set this value for the target GPU architecture when building elsewhere. If your
+MPI wrapper is not `mpicxx`:
 
 ```bash
 make MPICXX=/path/to/mpicxx CUDA_ARCH=90
@@ -89,4 +93,8 @@ For matched Fortran/CUDA C++ comparison studies, use `../Study`.
 
 ## Verification Status
 
-The current workstation does not expose `nvcc` or CUDA hardware, so this port has not been compiled or run here. Build and runtime validation must be done on a CUDA-capable environment.
+The port has been built and exercised on an H200 multi-GPU server with CUDA
+12.9 and Open MPI. The matched study report in `../Study` summarizes the
+current correctness and performance evidence. Local machines without CUDA
+hardware can still inspect and edit the source, but build and runtime
+validation require a CUDA-capable environment.

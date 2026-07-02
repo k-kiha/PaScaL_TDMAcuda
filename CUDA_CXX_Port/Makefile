@@ -1,6 +1,6 @@
 NVCC      ?= nvcc
 MPICXX    ?= mpicxx
-CUDA_ARCH ?= 80
+CUDA_ARCH ?= 90
 OPT       ?= -O3
 
 SRC_DIR     := src

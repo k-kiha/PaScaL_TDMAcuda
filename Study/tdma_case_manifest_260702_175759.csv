@@ -1,2 +1,0 @@
-study_suite,case_id,nranks,n1,n2,n3,baseline_nranks,scaling_kind,cxx_mpi_modes,notes
-custom,custom_np8_128x128x4096,8,128,128,4096,2,custom,host,user_supplied_case
