@@ -54,7 +54,7 @@ as warm-up during analysis.
 
 ```bash
 make profile CUDA_ARCH=90
-PASCAL_TDMA_MPI_MODE=host mpirun -np 4 ./run/ex_tdma_profile 64 64 2048 10
+mpirun -np 4 ./run/ex_tdma_profile 64 64 2048 10
 ```
 
 Arguments:
@@ -69,11 +69,12 @@ For CUDA C++ multi-case studies, use the Linux sweep script:
 NP_LIST="1 2 4 8" \
 SIZE_LIST="64,64,2048 128,128,4096" \
 ITERATIONS=10 \
-MPI_MODE=host \
 ./scripts/run_tdma_profile_sweep.sh
 ```
 
 The script writes CSV files under `profile_results/`.
+It uses `MPI_MODE=device` by default. Set `MPI_MODE=host` explicitly to use
+host-staging fallback.
 
 For matched Fortran/CUDA C++ comparison studies, use `../Study`.
 

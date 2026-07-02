@@ -8,7 +8,7 @@ SIZE_LIST=${SIZE_LIST:-"64,64,2048 128,128,2048 128,128,4096"}
 ITERATIONS=${ITERATIONS:-10}
 TDMA_THREADS=${TDMA_THREADS:-128}
 REDUCED_THREADS=${REDUCED_THREADS:-128}
-MPI_MODE=${MPI_MODE:-host}
+MPI_MODE=${MPI_MODE:-device}
 OUT=${OUT:-"profile_results/tdma_profile_$(date +%y%m%d_%H%M%S).csv"}
 
 mkdir -p "$(dirname "$OUT")"

@@ -72,8 +72,44 @@ module PaScaL_TDMA_cuda
         real*8, allocatable, dimension(:,:), device :: Atr,Btr,Ctr,Dtr
         
     end type ptdma_plan_cuda
+
+    !===================================================================
+    ! ptdma_timing_cuda
+    ! -----------------
+    ! Phase timing container for the profiled solver entry point.
+    ! Times are local to each MPI rank. Study drivers reduce them across
+    ! ranks when writing CSV output.
+    !===================================================================
+    type, public :: ptdma_timing_cuda
+        real(8) :: total = 0.0d0
+        real(8) :: local_compute = 0.0d0
+        real(8) :: pack_forward = 0.0d0
+        real(8) :: mpi_forward = 0.0d0
+        real(8) :: unpack_forward = 0.0d0
+        real(8) :: reduced_compute = 0.0d0
+        real(8) :: pack_backward = 0.0d0
+        real(8) :: mpi_backward = 0.0d0
+        real(8) :: unpack_backward = 0.0d0
+        real(8) :: update_compute = 0.0d0
+    end type ptdma_timing_cuda
     
 contains
+
+    subroutine pascal_timing_reset(timing)
+        implicit none
+        type(ptdma_timing_cuda) :: timing
+
+        timing%total = 0.0d0
+        timing%local_compute = 0.0d0
+        timing%pack_forward = 0.0d0
+        timing%mpi_forward = 0.0d0
+        timing%unpack_forward = 0.0d0
+        timing%reduced_compute = 0.0d0
+        timing%pack_backward = 0.0d0
+        timing%mpi_backward = 0.0d0
+        timing%unpack_backward = 0.0d0
+        timing%update_compute = 0.0d0
+    end subroutine pascal_timing_reset
 
     !===================================================================
     ! pascal_plan_create
@@ -317,8 +353,11 @@ contains
             !----------------------------------------------------------------
             ! All-to-all communication of reduced coefficients
             !----------------------------------------------------------------
-            call pascal_a2av( plan%BIGbuf_A,sum(plan%BIGbufsubsize_A(:)),plan%BIGbufsubsize_A,plan%BIGbufstart_A &
-                            , plan%BIGbuf_B,sum(plan%BIGbufsubsize_B(:)),plan%BIGbufsubsize_B,plan%BIGbufstart_B, plan%nprocs, plan%ptdma_world)
+            call pascal_a2av( plan%BIGbuf_A,sum(plan%BIGbufsubsize_A(:)) &
+                            , plan%BIGbufsubsize_A,plan%BIGbufstart_A &
+                            , plan%BIGbuf_B,sum(plan%BIGbufsubsize_B(:)) &
+                            , plan%BIGbufsubsize_B,plan%BIGbufstart_B &
+                            , plan%nprocs, plan%ptdma_world)
     
             !----------------------------------------------------------------
             ! UNPACK: assemble globally reduced system (Atr,Ctr,Dtr)
@@ -342,7 +381,8 @@ contains
             call pascalintAb<<<plan%b_intiAb, plan%t_intiAb>>>(plan%Btr, plan%Ntr_global(0), plan%Ntr_global(1))
             
             ! Solve the globally reduced system (size tmp_N x 2*nprocs)
-            call tdma_many_cuda<<<plan%b_rdtdma,plan%t_rdtdma>>>(plan%Atr,plan%Btr,plan%Ctr,plan%Dtr, plan%Ntr_global(0), plan%Ntr_global(1))
+            call tdma_many_cuda<<<plan%b_rdtdma,plan%t_rdtdma>>>(plan%Atr,plan%Btr,plan%Ctr,plan%Dtr &
+                                                               ,plan%Ntr_global(0), plan%Ntr_global(1))
 
             !----------------------------------------------------------------
             ! PACK: gather reduced solutions back into BIGbuf_B
@@ -355,8 +395,11 @@ contains
             end do
 
             ! All-to-all to distribute interface solutions to all ranks
-            call pascal_a2av( plan%BIGbuf_B,sum(plan%bufsubsize_B(:)),plan%bufsubsize_B,plan%bufstart_B &
-                            , plan%BIGbuf_A,sum(plan%bufsubsize_A(:)),plan%bufsubsize_A,plan%bufstart_A, plan%nprocs, plan%ptdma_world)
+            call pascal_a2av( plan%BIGbuf_B,sum(plan%bufsubsize_B(:)) &
+                            , plan%bufsubsize_B,plan%bufstart_B &
+                            , plan%BIGbuf_A,sum(plan%bufsubsize_A(:)) &
+                            , plan%bufsubsize_A,plan%bufstart_A &
+                            , plan%nprocs, plan%ptdma_world)
 
             ! UNPACK: scatter reduced solutions into Drd (local reduced RHS)
             do i = 0, plan%nprocs-1          
@@ -371,6 +414,137 @@ contains
             
         endif
     end subroutine pascal_solver
+
+    !===================================================================
+    ! pascal_solver_profiled
+    ! ----------------------
+    ! Profiled solver entry point for Study drivers. It preserves the same
+    ! numerical flow as pascal_solver, but inserts synchronizations around
+    ! major CUDA/MPI phases so the measured phase times are meaningful.
+    !
+    ! This routine is intended for instrumentation and comparison studies.
+    ! The regular pascal_solver path is kept free of profiling overhead.
+    !===================================================================
+    subroutine pascal_solver_profiled(plan,A,B,C,D,Nsys,Nrow,timing)
+        implicit none
+        type(ptdma_plan_cuda) :: plan
+        type(ptdma_timing_cuda) :: timing
+        integer :: Nsys,Nrow
+        real*8, device :: A(0:Nsys-1,0:Nrow-1),B(0:Nsys-1,0:Nrow-1)
+        real*8, device :: C(0:Nsys-1,0:Nrow-1),D(0:Nsys-1,0:Nrow-1)
+
+        integer :: i, ierr
+        real(8) :: total_start, phase_start
+
+        call pascal_timing_reset(timing)
+        ierr = CudaDeviceSynchronize()
+        total_start = MPI_WTIME()
+
+        if(plan%nprocs==1) then
+            phase_start = MPI_WTIME()
+            call tdma_many_cuda<<<plan%b_tdma,plan%t_tdma>>>(A,B,C,D, Nsys, Nrow)
+            ierr = CudaDeviceSynchronize()
+            timing%local_compute = MPI_WTIME() - phase_start
+            timing%total = MPI_WTIME() - total_start
+        else
+            phase_start = MPI_WTIME()
+            call tdma_modified_cuda<<<plan%b_tdma,plan%t_tdma>>>(A,B,C,D, &
+                                                                 plan%Ard,plan%Brd,plan%Crd,plan%Drd, &
+                                                                 Nsys, Nrow)
+            ierr = CudaDeviceSynchronize()
+            timing%local_compute = MPI_WTIME() - phase_start
+
+            phase_start = MPI_WTIME()
+            do i = 0, plan%nprocs-1
+                call pascalpack<<<plan%b_pack,plan%t_pack>>>(plan%Ard,plan%Nrd_global(0),plan%Nrd_global(1) &
+                                                            ,plan%gather_Nrd_local_d(0:1,i)                 &
+                                                            ,plan%gather_Nrd_start_d(0:1,i)                 &
+                                                            ,plan%BIGbuf_A,sum(plan%BIGbufsubsize_A(:))     &
+                                                            ,plan%BIGbufstart_A(i)+0*plan%bufsubsize_A(i)   )
+                call pascalpack<<<plan%b_pack,plan%t_pack>>>(plan%Crd,plan%Nrd_global(0),plan%Nrd_global(1) &
+                                                            ,plan%gather_Nrd_local_d(0:1,i)                 &
+                                                            ,plan%gather_Nrd_start_d(0:1,i)                 &
+                                                            ,plan%BIGbuf_A,sum(plan%BIGbufsubsize_A(:))     &
+                                                            ,plan%BIGbufstart_A(i)+1*plan%bufsubsize_A(i)   )
+                call pascalpack<<<plan%b_pack,plan%t_pack>>>(plan%Drd,plan%Nrd_global(0),plan%Nrd_global(1) &
+                                                            ,plan%gather_Nrd_local_d(0:1,i)                 &
+                                                            ,plan%gather_Nrd_start_d(0:1,i)                 &
+                                                            ,plan%BIGbuf_A,sum(plan%BIGbufsubsize_A(:))     &
+                                                            ,plan%BIGbufstart_A(i)+2*plan%bufsubsize_A(i)   )
+            end do
+            ierr = CudaDeviceSynchronize()
+            timing%pack_forward = MPI_WTIME() - phase_start
+
+            phase_start = MPI_WTIME()
+            call pascal_a2av( plan%BIGbuf_A,sum(plan%BIGbufsubsize_A(:)),plan%BIGbufsubsize_A,plan%BIGbufstart_A &
+                            , plan%BIGbuf_B,sum(plan%BIGbufsubsize_B(:)),plan%BIGbufsubsize_B,plan%BIGbufstart_B &
+                            , plan%nprocs, plan%ptdma_world)
+            timing%mpi_forward = MPI_WTIME() - phase_start
+
+            phase_start = MPI_WTIME()
+            do i = 0, plan%nprocs-1
+                call pascalunpack<<<plan%b_pack,plan%t_pack>>>(plan%Atr,plan%Ntr_global(0),plan%Ntr_global(1) &
+                                                              ,plan%gather_Ntr_local_d(0:1,i)                 &
+                                                              ,plan%gather_Ntr_start_d(0:1,i)                 &
+                                                              ,plan%BIGbuf_B,sum(plan%BIGbufsubsize_B(:))     &
+                                                              ,plan%BIGbufstart_B(i)+0*plan%bufsubsize_B(i)   )
+                call pascalunpack<<<plan%b_pack,plan%t_pack>>>(plan%Ctr,plan%Ntr_global(0),plan%Ntr_global(1) &
+                                                              ,plan%gather_Ntr_local_d(0:1,i)                 &
+                                                              ,plan%gather_Ntr_start_d(0:1,i)                 &
+                                                              ,plan%BIGbuf_B,sum(plan%BIGbufsubsize_B(:))     &
+                                                              ,plan%BIGbufstart_B(i)+1*plan%bufsubsize_B(i)   )
+                call pascalunpack<<<plan%b_pack,plan%t_pack>>>(plan%Dtr,plan%Ntr_global(0),plan%Ntr_global(1) &
+                                                              ,plan%gather_Ntr_local_d(0:1,i)                 &
+                                                              ,plan%gather_Ntr_start_d(0:1,i)                 &
+                                                              ,plan%BIGbuf_B,sum(plan%BIGbufsubsize_B(:))     &
+                                                              ,plan%BIGbufstart_B(i)+2*plan%bufsubsize_B(i)   )
+            end do
+            ierr = CudaDeviceSynchronize()
+            timing%unpack_forward = MPI_WTIME() - phase_start
+
+            phase_start = MPI_WTIME()
+            call pascalintAb<<<plan%b_intiAb, plan%t_intiAb>>>(plan%Btr, plan%Ntr_global(0), plan%Ntr_global(1))
+            call tdma_many_cuda<<<plan%b_rdtdma,plan%t_rdtdma>>>(plan%Atr,plan%Btr,plan%Ctr,plan%Dtr, &
+                                                                 plan%Ntr_global(0), plan%Ntr_global(1))
+            ierr = CudaDeviceSynchronize()
+            timing%reduced_compute = MPI_WTIME() - phase_start
+
+            phase_start = MPI_WTIME()
+            do i = 0, plan%nprocs-1
+                call pascalpack<<<plan%b_pack,plan%t_pack>>>(plan%Dtr,plan%Ntr_global(0),plan%Ntr_global(1) &
+                                                            ,plan%gather_Ntr_local_d(0:1,i)                 &
+                                                            ,plan%gather_Ntr_start_d(0:1,i)                 &
+                                                            ,plan%BIGbuf_B,sum(plan%bufsubsize_B(:))        &
+                                                            ,plan%bufstart_B(i)                             )
+            end do
+            ierr = CudaDeviceSynchronize()
+            timing%pack_backward = MPI_WTIME() - phase_start
+
+            phase_start = MPI_WTIME()
+            call pascal_a2av( plan%BIGbuf_B,sum(plan%bufsubsize_B(:)),plan%bufsubsize_B,plan%bufstart_B &
+                            , plan%BIGbuf_A,sum(plan%bufsubsize_A(:)),plan%bufsubsize_A,plan%bufstart_A &
+                            , plan%nprocs, plan%ptdma_world)
+            timing%mpi_backward = MPI_WTIME() - phase_start
+
+            phase_start = MPI_WTIME()
+            do i = 0, plan%nprocs-1
+                call pascalunpack<<<plan%b_pack,plan%t_pack>>>(plan%Drd,plan%Nrd_global(0),plan%Nrd_global(1) &
+                                                              ,plan%gather_Nrd_local_d(0:1,i)                 &
+                                                              ,plan%gather_Nrd_start_d(0:1,i)                 &
+                                                              ,plan%BIGbuf_A,sum(plan%BIGbufsubsize_A(:))     &
+                                                              ,plan%bufstart_A(i)                             )
+            end do
+            ierr = CudaDeviceSynchronize()
+            timing%unpack_backward = MPI_WTIME() - phase_start
+
+            phase_start = MPI_WTIME()
+            call pascal_update<<<plan%b_tdma,plan%t_tdma>>>(A,B,C,D, plan%Drd, Nsys, Nrow)
+            ierr = CudaDeviceSynchronize()
+            timing%update_compute = MPI_WTIME() - phase_start
+
+            timing%total = MPI_WTIME() - total_start
+        endif
+    end subroutine pascal_solver_profiled
 
     !===================================================================
     ! para
