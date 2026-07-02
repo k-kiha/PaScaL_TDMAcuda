@@ -32,6 +32,35 @@ void partition_1d(int start, int end, int nprocs, int rank, int& first, int& las
 
 MpiBufferMode mpi_mode_from_env();
 
+struct SolveTimings {
+    double total = 0.0;
+
+    double local_compute = 0.0;
+    double pack_forward = 0.0;
+    double mpi_forward = 0.0;
+    double unpack_forward = 0.0;
+
+    double reduced_compute = 0.0;
+
+    double pack_backward = 0.0;
+    double mpi_backward = 0.0;
+    double unpack_backward = 0.0;
+
+    double update_compute = 0.0;
+
+    double communication() const {
+        return mpi_forward + mpi_backward;
+    }
+
+    double packing() const {
+        return pack_forward + unpack_forward + pack_backward + unpack_backward;
+    }
+
+    double computation() const {
+        return local_compute + reduced_compute + update_compute;
+    }
+};
+
 struct PascalTdmaPlan {
     MPI_Comm comm = MPI_COMM_NULL;
     int rank = 0;
@@ -110,5 +139,15 @@ void solve(PascalTdmaPlan& plan,
            int nsys,
            int nrow,
            cudaStream_t stream = nullptr);
+
+void solve_profiled(PascalTdmaPlan& plan,
+                    double* a_dev,
+                    double* b_dev,
+                    double* c_dev,
+                    double* d_dev,
+                    int nsys,
+                    int nrow,
+                    SolveTimings* timings,
+                    cudaStream_t stream = nullptr);
 
 }  // namespace pascal_tdma

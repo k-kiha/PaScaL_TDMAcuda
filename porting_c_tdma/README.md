@@ -45,12 +45,43 @@ For non CUDA-aware MPI:
 PASCAL_TDMA_MPI_MODE=host mpirun -np 4 ./run/ex_tdma_zdirection
 ```
 
+## Profiling
+
+`ex_tdma_profile` reuses one plan and repeats only the solver call for one
+problem size. The first iteration is kept in the CSV output so it can be treated
+as warm-up during analysis.
+
+```bash
+make profile CUDA_ARCH=90
+PASCAL_TDMA_MPI_MODE=host mpirun -np 4 ./run/ex_tdma_profile 64 64 2048 10
+```
+
+Arguments:
+
+```text
+ex_tdma_profile [n1] [n2] [n3] [iterations] [tdma_threads] [reduced_threads]
+```
+
+For multi-case studies, use the Linux sweep script:
+
+```bash
+NP_LIST="1 2 4 8" \
+SIZE_LIST="64,64,2048 128,128,4096" \
+ITERATIONS=10 \
+MPI_MODE=host \
+./scripts/run_tdma_profile_sweep.sh
+```
+
+The script writes CSV files under `profile_results/`.
+
 ## Files
 
 - `PORTING_PLAN.md`: source-level porting plan and self-review.
 - `include/pascal_tdma_cuda.hpp`: public CUDA C++ API.
 - `src/pascal_tdma_cuda.cu`: plan, kernels, MPI all-to-all wrapper.
 - `examples/ex_tdma_zdirection.cu`: C++ version of the z-direction sample.
+- `examples/ex_tdma_profile.cu`: one-case timing example with CSV output.
+- `scripts/run_tdma_profile_sweep.sh`: Linux helper for rank/size sweeps.
 
 ## Verification Status
 

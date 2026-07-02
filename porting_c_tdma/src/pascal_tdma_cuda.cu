@@ -635,14 +635,37 @@ void PascalTdmaPlan::destroy() noexcept {
     created = false;
 }
 
-void solve(PascalTdmaPlan& plan,
-           double* a_dev,
-           double* b_dev,
-           double* c_dev,
-           double* d_dev,
-           const int nsys,
-           const int nrow,
-           cudaStream_t stream) {
+namespace {
+
+double wall_time() {
+    return MPI_Wtime();
+}
+
+void add_elapsed(SolveTimings* timings,
+                 double SolveTimings::*field,
+                 const double start_time) {
+    if (timings != nullptr) {
+        timings->*field += wall_time() - start_time;
+    }
+}
+
+void sync_for_timing(SolveTimings* timings, cudaStream_t stream) {
+    if (timings != nullptr) {
+        PASCAL_TDMA_CUDA_CHECK(cudaStreamSynchronize(stream));
+    }
+}
+
+void solve_impl(PascalTdmaPlan& plan,
+                double* a_dev,
+                double* b_dev,
+                double* c_dev,
+                double* d_dev,
+                const int nsys,
+                const int nrow,
+                SolveTimings* timings,
+                cudaStream_t stream) {
+    const double total_start = wall_time();
+
     if (!plan.created) {
         throw std::runtime_error("pascal_tdma::solve called with an uncreated plan");
     }
@@ -654,8 +677,12 @@ void solve(PascalTdmaPlan& plan,
     }
 
     if (plan.nprocs == 1) {
+        const double local_start = wall_time();
         launch_tdma_many(a_dev, b_dev, c_dev, d_dev, nsys, nrow,
                          plan.blocks_tdma, plan.threads_tdma, stream);
+        sync_for_timing(timings, stream);
+        add_elapsed(timings, &SolveTimings::local_compute, local_start);
+        add_elapsed(timings, &SolveTimings::total, total_start);
         return;
     }
 
@@ -663,10 +690,14 @@ void solve(PascalTdmaPlan& plan,
         throw std::invalid_argument("parallel modified TDMA requires nrow >= 2");
     }
 
+    const double local_start = wall_time();
     tdma_modified_kernel<<<plan.blocks_tdma, plan.threads_tdma, 0, stream>>>(
         a_dev, b_dev, c_dev, d_dev, plan.ard, plan.brd, plan.crd, plan.drd, nsys, nrow);
     PASCAL_TDMA_CUDA_CHECK(cudaGetLastError());
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::local_compute, local_start);
 
+    const double pack_forward_start = wall_time();
     for (int r = 0; r < plan.nprocs; ++r) {
         const int sub0 = desc_at(plan.gather_nrd_local, 0, r);
         const int sub1 = desc_at(plan.gather_nrd_local, 1, r);
@@ -682,13 +713,19 @@ void solve(PascalTdmaPlan& plan,
                     sub0, sub1, start0, start1, plan.bigbuf_a, plan.bigbuf_a_size,
                     plan.big_displs_a[r] + 2 * plan.counts_a[r], plan.threads_pack, stream);
     }
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::pack_forward, pack_forward_start);
 
+    const double mpi_forward_start = wall_time();
     alltoallv_double(plan.bigbuf_a, plan.bigbuf_a_size,
                      plan.big_counts_a, plan.big_displs_a,
                      plan.bigbuf_b, plan.bigbuf_b_size,
                      plan.big_counts_b, plan.big_displs_b,
                      plan.comm, plan.mpi_mode, stream);
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::mpi_forward, mpi_forward_start);
 
+    const double unpack_forward_start = wall_time();
     for (int r = 0; r < plan.nprocs; ++r) {
         const int sub0 = desc_at(plan.gather_ntr_local, 0, r);
         const int sub1 = desc_at(plan.gather_ntr_local, 1, r);
@@ -704,7 +741,10 @@ void solve(PascalTdmaPlan& plan,
                       sub0, sub1, start0, start1, plan.bigbuf_b, plan.bigbuf_b_size,
                       plan.big_displs_b[r] + 2 * plan.counts_b[r], plan.threads_pack, stream);
     }
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::unpack_forward, unpack_forward_start);
 
+    const double reduced_start = wall_time();
     const dim3 init_blocks(ceil_div(plan.ntr_global[0], static_cast<int>(plan.threads_init.x)),
                            plan.ntr_global[1],
                            1);
@@ -715,7 +755,10 @@ void solve(PascalTdmaPlan& plan,
     launch_tdma_many(plan.atr, plan.btr, plan.ctr, plan.dtr,
                      plan.ntr_global[0], plan.ntr_global[1],
                      plan.blocks_reduced, plan.threads_reduced, stream);
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::reduced_compute, reduced_start);
 
+    const double pack_backward_start = wall_time();
     for (int r = 0; r < plan.nprocs; ++r) {
         const int sub0 = desc_at(plan.gather_ntr_local, 0, r);
         const int sub1 = desc_at(plan.gather_ntr_local, 1, r);
@@ -725,13 +768,19 @@ void solve(PascalTdmaPlan& plan,
                     sub0, sub1, start0, start1, plan.bigbuf_b, plan.buf_b_size,
                     plan.displs_b[r], plan.threads_pack, stream);
     }
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::pack_backward, pack_backward_start);
 
+    const double mpi_backward_start = wall_time();
     alltoallv_double(plan.bigbuf_b, plan.buf_b_size,
                      plan.counts_b, plan.displs_b,
                      plan.bigbuf_a, plan.buf_a_size,
                      plan.counts_a, plan.displs_a,
                      plan.comm, plan.mpi_mode, stream);
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::mpi_backward, mpi_backward_start);
 
+    const double unpack_backward_start = wall_time();
     for (int r = 0; r < plan.nprocs; ++r) {
         const int sub0 = desc_at(plan.gather_nrd_local, 0, r);
         const int sub1 = desc_at(plan.gather_nrd_local, 1, r);
@@ -741,10 +790,44 @@ void solve(PascalTdmaPlan& plan,
                       sub0, sub1, start0, start1, plan.bigbuf_a, plan.bigbuf_a_size,
                       plan.displs_a[r], plan.threads_pack, stream);
     }
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::unpack_backward, unpack_backward_start);
 
+    const double update_start = wall_time();
     pascal_update_kernel<<<plan.blocks_tdma, plan.threads_tdma, 0, stream>>>(
         a_dev, b_dev, c_dev, d_dev, plan.drd, nsys, nrow);
     PASCAL_TDMA_CUDA_CHECK(cudaGetLastError());
+    sync_for_timing(timings, stream);
+    add_elapsed(timings, &SolveTimings::update_compute, update_start);
+    add_elapsed(timings, &SolveTimings::total, total_start);
+}
+
+}  // namespace
+
+void solve(PascalTdmaPlan& plan,
+           double* a_dev,
+           double* b_dev,
+           double* c_dev,
+           double* d_dev,
+           const int nsys,
+           const int nrow,
+           cudaStream_t stream) {
+    solve_impl(plan, a_dev, b_dev, c_dev, d_dev, nsys, nrow, nullptr, stream);
+}
+
+void solve_profiled(PascalTdmaPlan& plan,
+                    double* a_dev,
+                    double* b_dev,
+                    double* c_dev,
+                    double* d_dev,
+                    const int nsys,
+                    const int nrow,
+                    SolveTimings* timings,
+                    cudaStream_t stream) {
+    if (timings != nullptr) {
+        *timings = SolveTimings{};
+    }
+    solve_impl(plan, a_dev, b_dev, c_dev, d_dev, nsys, nrow, timings, stream);
 }
 
 }  // namespace pascal_tdma

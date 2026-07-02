@@ -16,14 +16,17 @@ NVCCFLAGS := -std=c++17 $(OPT) $(GENCODE) -ccbin $(MPICXX) -I$(INC_DIR)
 LIB := $(LIB_DIR)/libpascal_tdma_cuda.a
 OBJ := $(BUILD_DIR)/pascal_tdma_cuda.o
 EXE := $(RUN_DIR)/ex_tdma_zdirection
+PROFILE_EXE := $(RUN_DIR)/ex_tdma_profile
 
-.PHONY: all lib example clean veryclean dirs
+.PHONY: all lib example profile clean veryclean dirs
 
 all: lib example
 
 lib: $(LIB)
 
-example: $(EXE)
+example: $(EXE) $(PROFILE_EXE)
+
+profile: $(PROFILE_EXE)
 
 dirs:
 	mkdir -p $(BUILD_DIR) $(LIB_DIR) $(RUN_DIR)
@@ -36,6 +39,9 @@ $(LIB): $(OBJ) | dirs
 	ranlib $@
 
 $(EXE): $(EXAMPLE_DIR)/ex_tdma_zdirection.cu $(LIB) | dirs
+	$(NVCC) $(NVCCFLAGS) $< $(LIB) -o $@
+
+$(PROFILE_EXE): $(EXAMPLE_DIR)/ex_tdma_profile.cu $(LIB) | dirs
 	$(NVCC) $(NVCCFLAGS) $< $(LIB) -o $@
 
 clean:
