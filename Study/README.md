@@ -39,7 +39,7 @@ needed.
 The default study preset is `portfolio`:
 
 ```bash
-./run_study_sweep.sh
+./run_full_study.sh
 ```
 
 It runs a portfolio-oriented case matrix for:
@@ -71,7 +71,18 @@ Before running a long server job, inspect the planned commands and generated
 case manifest:
 
 ```bash
-DRY_RUN=1 ./run_study_sweep.sh
+DRY_RUN_ONLY=1 ./run_full_study.sh
+```
+
+`run_full_study.sh` is a thin wrapper around `run_study_sweep.sh`. It sets the
+portfolio defaults, uses 8 visible GPUs when `CUDA_VISIBLE_DEVICES` is not set,
+runs a dry-run preview first, and writes a log file with the same timestamp as
+the CSV outputs.
+
+To skip the preview:
+
+```bash
+SKIP_DRY_RUN=1 ./run_full_study.sh
 ```
 
 Important defaults:
@@ -88,6 +99,12 @@ For 8-GPU H200 runs, set visible devices explicitly when desired:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 ./run_study_sweep.sh
+```
+
+or simply:
+
+```bash
+./run_full_study.sh
 ```
 
 ## Study Outputs
