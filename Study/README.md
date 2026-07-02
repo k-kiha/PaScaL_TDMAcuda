@@ -34,15 +34,29 @@ For the CUDA C++ driver, MPI device-buffer communication is the default. Set
 `MPI_MODE=host` in `run_study_sweep.sh` only when host-staging fallback is
 needed.
 
-## Study Presets
+## Study Runs
 
-The default study preset is `portfolio`:
+The full Study entry point is:
 
 ```bash
 ./run_full_study.sh
 ```
 
-It runs a portfolio-oriented case matrix for:
+`run_full_study.sh` does not rely on the `portfolio` preset. It explicitly
+runs each case listed in `4_260702_TDMA_study_case_matrix.md` as a custom
+`run_study_sweep.sh` call, for example:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+STUDY_PRESET=custom \
+NP_LIST="2" \
+SIZE_LIST="128,128,4096" \
+ITERATIONS=10 \
+CXX_DEFAULT_MPI_MODES=device \
+./run_study_sweep.sh
+```
+
+The full script runs:
 
 - correctness,
 - compute/communication phase breakdown,
@@ -51,6 +65,16 @@ It runs a portfolio-oriented case matrix for:
 - `n1*n2` sensitivity,
 - `n3/rank` sensitivity,
 - CUDA C++ MPI mode comparison between `device` and `host`.
+
+The default full run uses:
+
+```text
+22 unique device-mode base cases:
+  Fortran original + CUDA C++ device
+
+3 CUDA C++ host-mode cases:
+  np=2,4,8 at 128,128,4096
+```
 
 Use `quick` for a small smoke run:
 
@@ -67,41 +91,31 @@ SIZE_LIST="128,128,4096" \
 ./run_study_sweep.sh
 ```
 
-Before running a long server job, inspect the planned commands and generated
-case manifest:
+Before running a long server job, inspect only the planned commands and
+generated full case list:
 
 ```bash
-DRY_RUN_ONLY=1 ./run_full_study.sh
+DRY_RUN=1 ./run_full_study.sh
 ```
 
-`run_full_study.sh` is a thin wrapper around `run_study_sweep.sh`. It sets the
-portfolio defaults, uses 8 visible GPUs when `CUDA_VISIBLE_DEVICES` is not set,
-runs a dry-run preview first, and writes a log file with the same timestamp as
-the CSV outputs.
-
-To skip the preview:
+`run_full_study.sh` expects the Study executables to already exist. To build as
+part of the full run:
 
 ```bash
-SKIP_DRY_RUN=1 ./run_full_study.sh
+BUILD_BEFORE_RUN=1 ./run_full_study.sh
 ```
 
 Important defaults:
 
 ```text
-BASELINE_NP=2
-SCALING_NP_LIST="2 4 8"
 ITERATIONS=10
-CXX_DEFAULT_MPI_MODES="device"
-MPI_MODE_LIST="device host"
+TDMA_THREADS=128
+REDUCED_THREADS=128
+CUDA_ARCH=90
+BUILD_BEFORE_RUN=0
 ```
 
-For 8-GPU H200 runs, set visible devices explicitly when desired:
-
-```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 ./run_study_sweep.sh
-```
-
-or simply:
+For normal server use:
 
 ```bash
 ./run_full_study.sh
