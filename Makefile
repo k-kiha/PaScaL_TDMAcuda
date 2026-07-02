@@ -1,57 +1,55 @@
-########################################################################
-# PaScaL_TDMA 2.1 - Top-Level Makefile
-#
-# This Makefile does not perform compilation directly. Instead, it 
-# delegates the build process to the Makefiles inside:
-#     - src/       : builds the PaScaL_TDMA CUDA library
-#     - examples/  : builds example executables
-#
-# Available targets:
-#   make lib       -> Build the static library  (lib/libPaScaL_TDMA.a)
-#   make example   -> Build the example binary (run/a.out)
-#   make all       -> Build both library and example
-#   make clean     -> Clean intermediate files in src/ and examples/
-#   make veryclean -> Clean everything including lib/, include/, run/
-#
-# This design follows the modular structure of PaScaL_TDMA 2.0,
-# allowing each subdirectory to control its own build rules.
-########################################################################
+CUDA_ARCH ?= 90
+FC        = mpifort
+NVCC      ?= nvcc
+MPICXX    ?= mpicxx
+FORTRAN_CUDAFLAG ?= -cuda -gpu=cc$(CUDA_ARCH)
 
-include Makefile.inc
+.PHONY: all libs fortran fortran-lib fortran-example \
+        cuda-cxx cuda-cxx-lib cuda-cxx-example cuda-cxx-profile \
+        study clean veryclean help
 
-.PHONY: all lib example clean veryclean
+all: libs study
 
-# ----------------------------------------------------------------------
-# Build both the library and example programs
-# ----------------------------------------------------------------------
-all: lib example
+libs: fortran-lib cuda-cxx-lib
 
+fortran: fortran-lib fortran-example
 
-# ----------------------------------------------------------------------
-# Build the static library by invoking src/Makefile
-# ----------------------------------------------------------------------
-lib:
-	$(MAKE) -C src lib
+fortran-lib:
+	$(MAKE) -C Fortran_Original lib FC="$(FC)" CUDAFLAG="$(FORTRAN_CUDAFLAG)"
 
+fortran-example: fortran-lib
+	$(MAKE) -C Fortran_Original example FC="$(FC)" CUDAFLAG="$(FORTRAN_CUDAFLAG)"
 
-# ----------------------------------------------------------------------
-# Build example executables by invoking examples/Makefile
-# ----------------------------------------------------------------------
-example:
-	$(MAKE) -C examples example
+cuda-cxx: cuda-cxx-lib cuda-cxx-example
 
+cuda-cxx-lib:
+	$(MAKE) -C CUDA_CXX_Port lib CUDA_ARCH=$(CUDA_ARCH) NVCC="$(NVCC)" MPICXX="$(MPICXX)"
 
-# ----------------------------------------------------------------------
-# Remove object and module files generated during compilation
-# ----------------------------------------------------------------------
+cuda-cxx-example: cuda-cxx-lib
+	$(MAKE) -C CUDA_CXX_Port example CUDA_ARCH=$(CUDA_ARCH) NVCC="$(NVCC)" MPICXX="$(MPICXX)"
+
+cuda-cxx-profile: cuda-cxx-lib
+	$(MAKE) -C CUDA_CXX_Port profile CUDA_ARCH=$(CUDA_ARCH) NVCC="$(NVCC)" MPICXX="$(MPICXX)"
+
+study: libs
+	$(MAKE) -C Study all CUDA_ARCH=$(CUDA_ARCH) FC="$(FC)" NVCC="$(NVCC)" MPICXX="$(MPICXX)"
+
 clean:
-	$(MAKE) -C src clean
-	$(MAKE) -C examples clean
-	rm -f ./lib/* ./include/*
-	find ./run -type f ! -name 'job.sh' -delete
+	$(MAKE) -C Fortran_Original clean
+	$(MAKE) -C CUDA_CXX_Port clean
+	$(MAKE) -C Study clean
 
+veryclean:
+	$(MAKE) -C Fortran_Original veryclean
+	$(MAKE) -C CUDA_CXX_Port veryclean
+	$(MAKE) -C Study veryclean
 
-# ----------------------------------------------------------------------
-# Remove all build artifacts (full cleanup)
-# ----------------------------------------------------------------------
-veryclean: clean
+help:
+	@echo "PaScaL_TDMAcuda study-oriented build"
+	@echo "  make all              build Fortran/CUDA C++ libraries and Study examples"
+	@echo "  make libs             build only implementation libraries"
+	@echo "  make fortran          build original CUDA Fortran library and sample"
+	@echo "  make cuda-cxx         build CUDA C++ port library and samples"
+	@echo "  make study            build matched Study drivers"
+	@echo "  make clean            remove intermediate build files"
+	@echo "  make veryclean        remove generated libraries and executables"

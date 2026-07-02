@@ -56,7 +56,7 @@ clean_generated_files_under() {
     done < <(
         find "$base" \
             -path "$ROOT/.git" -prune -o \
-            -path "$ROOT/porting_c_tdma/profile_results" -prune -o \
+            -path "$ROOT/CUDA_CXX_Port/profile_results" -prune -o \
             -path "$ROOT/profile_results" -prune -o \
             -type f \( \
                 -name '*.o' -o \
@@ -108,10 +108,16 @@ remove_tree_or_clean_contents() {
 remove_tree_or_clean_contents "$ROOT/build"
 remove_tree_or_clean_contents "$ROOT/include"
 remove_tree_or_clean_contents "$ROOT/lib"
-remove_tree_or_clean_contents "$ROOT/porting_c_tdma/build"
-remove_tree_or_clean_contents "$ROOT/porting_c_tdma/lib"
-remove_path "$ROOT/porting_c_tdma/run/ex_tdma_zdirection"
-remove_path "$ROOT/porting_c_tdma/run/ex_tdma_profile"
+remove_tree_or_clean_contents "$ROOT/Fortran_Original/include"
+remove_tree_or_clean_contents "$ROOT/Fortran_Original/lib"
+remove_path "$ROOT/Fortran_Original/run/a.out"
+remove_tree_or_clean_contents "$ROOT/CUDA_CXX_Port/build"
+remove_tree_or_clean_contents "$ROOT/CUDA_CXX_Port/lib"
+remove_path "$ROOT/CUDA_CXX_Port/run/ex_tdma_zdirection"
+remove_path "$ROOT/CUDA_CXX_Port/run/ex_tdma_profile"
+remove_path "$ROOT/Study/example_fortran_profile"
+remove_path "$ROOT/Study/example_cuda_cxx_profile"
+remove_path "$ROOT/Study/.example_fortran_profile.o"
 clean_generated_files_under "$ROOT"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then

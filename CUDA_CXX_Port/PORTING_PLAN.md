@@ -1,7 +1,7 @@
 # PaScaL_TDMAcuda CUDA C++ Porting Plan
 
 date: 2026-06-30
-source: `../src/PaScaL_TDMA_cuda.f90`
+source: `../Fortran_Original/src/PaScaL_TDMA_cuda.f90`
 reference report: `../../brain/4_260630_PaScaL_TDMAcuda_analysis.md`
 
 ## 1. Porting 기준

@@ -1,6 +1,7 @@
 # PaScaL_TDMAcuda CUDA C++ Port
 
-This directory is a first-pass CUDA C++ port of `../src/PaScaL_TDMA_cuda.f90`.
+This directory is a first-pass CUDA C++ port of
+`../Fortran_Original/src/PaScaL_TDMA_cuda.f90`.
 
 ## Scope
 
@@ -62,7 +63,7 @@ Arguments:
 ex_tdma_profile [n1] [n2] [n3] [iterations] [tdma_threads] [reduced_threads]
 ```
 
-For multi-case studies, use the Linux sweep script:
+For CUDA C++ multi-case studies, use the Linux sweep script:
 
 ```bash
 NP_LIST="1 2 4 8" \
@@ -73,6 +74,8 @@ MPI_MODE=host \
 ```
 
 The script writes CSV files under `profile_results/`.
+
+For matched Fortran/CUDA C++ comparison studies, use `../Study`.
 
 ## Files
 
