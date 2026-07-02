@@ -5,6 +5,22 @@ port, and matched benchmark drivers side by side. The goal is to preserve the
 solver's MPI-parallel algorithmic structure while making the port, validation,
 and multi-GPU performance analysis easy to inspect.
 
+## Publication Background
+
+This repository originated as the developer repository associated with the
+PaScaL_TDMA 2.1 paper in Computer Physics Communications. The CUDA Fortran
+implementation in `Fortran_Original/` is the published reference code, while
+`CUDA_CXX_Port/` and `Study/` extend the repository with a CUDA C++ port and a
+matched validation/performance workflow.
+
+Reference:
+
+K.-H. Kim, D. Lee, J. Lee, S. Oh, S. Lee, J.-H. Kang, and J.-I. Choi,
+"PaScaL_TDMA 2.1: A register-resident multi-GPU tridiagonal matrix solver with
+optimized communication for large-scale CFD simulations,"
+Computer Physics Communications 323 (2026) 110120.
+https://doi.org/10.1016/j.cpc.2026.110120
+
 ## Layout
 
 ```text

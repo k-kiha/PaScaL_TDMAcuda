@@ -1,5 +1,14 @@
 # PaScaL_TDMA 2.1 (CUDA Fortran / MPI)
 
+This directory contains the CUDA Fortran reference implementation associated
+with the PaScaL_TDMA 2.1 Computer Physics Communications paper:
+
+K.-H. Kim, D. Lee, J. Lee, S. Oh, S. Lee, J.-H. Kang, and J.-I. Choi,
+"PaScaL_TDMA 2.1: A register-resident multi-GPU tridiagonal matrix solver with
+optimized communication for large-scale CFD simulations,"
+Computer Physics Communications 323 (2026) 110120.
+https://doi.org/10.1016/j.cpc.2026.110120
+
 This directory preserves the original CUDA Fortran + MPI implementation used
 as the reference for the CUDA C++ port and the matched `../Study` drivers.
 

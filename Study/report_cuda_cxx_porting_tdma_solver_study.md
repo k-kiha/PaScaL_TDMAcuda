@@ -16,7 +16,10 @@ Key findings:
 
 ## Project Context
 
-The original project is a CUDA Fortran + MPI TDMA implementation. The porting work reorganizes the solver into CUDA C++ while preserving the main numerical structure:
+The original project is the CUDA Fortran + MPI implementation of PaScaL_TDMA
+2.1, published as a multi-GPU tridiagonal solver in Computer Physics
+Communications 323 (2026) 110120. The porting work reorganizes the published
+solver into CUDA C++ while preserving the main numerical structure:
 
 - many independent TDMA systems: `nsys = n1 * n2`
 - row length per MPI rank: `nrow = n3 / nranks`
