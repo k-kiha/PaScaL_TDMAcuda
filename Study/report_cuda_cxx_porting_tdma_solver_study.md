@@ -8,11 +8,11 @@ The current merged dataset contains CUDA C++ timing rows only. Therefore, this r
 
 Key findings:
 
-- The CUDA C++ result is numerically consistent with the expected solution across all collected cases. The maximum absolute error is `8.860e-12`.
+- The iteration-0 CUDA C++ solution is numerically consistent with the expected solution across all 25 collected cases. The maximum absolute error is `8.860e-12`.
 - For the central case `128x128x4096`, device-mode time improves from `4.225 ms` at 2 GPUs to `1.340 ms` at 8 GPUs.
 - Strong scaling from the 2-GPU baseline reaches `3.154x` speedup and `78.8%` efficiency at 8 GPUs for `128x128x4096`.
 - CUDA-aware device mode is consistently faster than host fallback for the central multi-GPU case. Host fallback is `1.089x`, `1.097x`, and `1.232x` slower at 2, 4, and 8 GPUs.
-- The first iteration has a large warm-up cost, so timing statistics in this report use iterations `1-9`.
+- Iteration 0 uses the original initialized inputs and includes first-call overhead. Iterations `1-9` operate on successively in-place-modified inputs because the drivers do not restore `A`, `C`, and `D`; their mean is an execution-path measurement under that protocol, not steady-state timing for repeated solves of the original system.
 
 ## Project Context
 
@@ -22,7 +22,7 @@ Communications 323 (2026) 110120. The porting work reorganizes the published
 solver into CUDA C++ while preserving the main numerical structure:
 
 - many independent TDMA systems: `nsys = n1 * n2`
-- row length per MPI rank: `nrow = n3 / nranks`
+- each rank owns a balanced contiguous part of `n3`; local row lengths are `floor(n3 / nranks)` or `ceil(n3 / nranks)` and differ by at most one
 - multi-GPU decomposition along the TDMA row direction
 - reduced-system communication through MPI
 
@@ -55,7 +55,7 @@ The study is designed as a compact engineering case study: port an existing GPU 
 | C++ compiler wrapper | `mpicxx` with `nvc++` 25.11 |
 | Fortran compiler wrapper | `mpifort` with `nvfortran` 25.11 |
 | Iterations per case | 10 |
-| Timing statistics | iterations `1-9` |
+| Timing statistics | iterations `1-9` under the in-place repetition protocol |
 
 The GPU topology reported NVLink connectivity among the H200 GPUs. The study used `CUDA_VISIBLE_DEVICES` to control the number of visible GPUs for each MPI run.
 
@@ -82,7 +82,7 @@ Additional metrics:
 - `compute_s_max`: local TDMA, reduced-system compute, and update phases
 - `communication_s_max`: MPI forward and backward communication
 - `packing_s_max`: pack/unpack overhead around MPI exchange
-- `throughput = n1 * n2 * n3 / total_s_max`
+- `throughput_Mcells_s = n1 * n2 * n3 / total_s_max / 10^6`
 - strong-scaling speedup from 2-GPU baseline: `T2 / Tp`
 - strong-scaling efficiency from 2-GPU baseline: `T2 / ((p / 2) * Tp)`
 
@@ -90,7 +90,7 @@ Line plots are rendered on log-log axes. For strong scaling, dashed curves show 
 
 ## Correctness
 
-The test problem is constructed so that the expected solution is `1`. The CUDA C++ port stays close to this reference over the tested grid sizes and MPI configurations.
+The test problem is constructed so that the expected solution is `1`. The iteration-0 CUDA C++ solution stays close to this reference over the tested grid sizes and MPI configurations. Correctness is not collected after iteration 0.
 
 | Result | Value |
 | --- | --- |
@@ -104,6 +104,10 @@ Full table: [result/tables/1_correctness_summary.md](result/tables/1_correctness
 ## Central Case Timing
 
 The central case is `128x128x4096`. It is used as the common reference for phase breakdown, strong scaling, and MPI mode comparison.
+
+All timing values below summarize iterations `1-9` under the current in-place
+repetition protocol. They characterize that execution path; they are not
+measurements of repeated independent solves with restored original inputs.
 
 | case | mode | np | total_ms | compute_ms | comm_ms | packing_ms | throughput_Mcells_s |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -177,7 +181,7 @@ The weak-nrow path keeps runtime nearly flat while increasing total problem size
 
 ## Nrow Sensitivity
 
-`nrow = n3 / nranks` controls the local TDMA row length per MPI rank. Increasing `nrow` increases total runtime almost linearly, but the throughput remains stable or improves because each rank performs more useful work per communication step.
+The local TDMA row length is `floor(n3 / nranks)` or `ceil(n3 / nranks)`. All cases in the table below are divisible, so their local lengths equal `n3 / nranks`. Increasing `nrow` increases total runtime almost linearly, while throughput remains roughly constant or improves because each rank performs more useful work per communication step.
 
 | np | nrow | grid | total_ms | comm_percent_of_total | throughput_Mcells_s |
 | --- | --- | --- | --- | --- | --- |
@@ -210,13 +214,21 @@ The communication percentage is highest when local rows are short, especially at
 
 Device mode reduces MPI communication time substantially. The effect becomes more important at 8 GPUs, where the host fallback path is about `23.2%` slower than device mode for the central case.
 
-## Reproducibility and Warm-up
+## Repetition and first-call timing boundary
 
-The first iteration is not representative of steady-state solver cost. For example, the central device-mode case at 8 GPUs has an iteration-0 time of `214.406 ms`, while the stable mean is `1.340 ms`.
+For the central device-mode case at 8 GPUs, iteration 0 takes `214.406 ms`,
+while the iterations `1-9` mean is `1.340 ms`. Iteration 0 is the solve that
+uses the original initialized inputs and it also includes first-call overhead.
+After that call, the coefficient and right-hand-side arrays have been modified
+in place. Because the driver does not restore them, the later calls operate on
+successively transformed buffers.
 
-![Warm-up effect](result/figures/8_warmup_effect_central_device.svg)
+![First call versus iterations 1-9](result/figures/8_warmup_effect_central_device.svg)
 
-For this reason, all timing conclusions use iterations `1-9`. The complete reproducibility tables are available here:
+The timing difference therefore cannot be assigned solely to GPU warm-up, and
+the iterations `1-9` mean must not be interpreted as steady-state timing for
+repeated solves of an identical system. The complete repetition tables are
+available here:
 
 - [result/tables/8_reproducibility_top_cv.md](result/tables/8_reproducibility_top_cv.md)
 - [result/tables/9_warmup_effect_top.md](result/tables/9_warmup_effect_top.md)
@@ -234,6 +246,14 @@ The next report revision should add:
 
 ## Conclusion
 
-The CUDA C++ port is numerically correct for the collected cases and exposes useful multi-GPU performance behavior. The results show strong speedup from 2 to 8 GPUs, clear benefits from CUDA-aware device MPI communication, and predictable sensitivity to `nsys` and `nrow`.
+The iteration-0 CUDA C++ results establish numerical correctness against the
+expected-one test for the 25 collected cases. Iterations `1-9` show multi-GPU
+execution-path scaling under the current in-place repetition protocol,
+including lower measured time for device-direct MPI than host staging in the
+tested cases. They do not establish timing for repeated identical solves.
 
-As an engineering artifact, this study demonstrates more than a language translation. It shows a reproducible workflow for porting a GPU solver, instrumenting compute and communication phases, and interpreting performance on a modern multi-GPU system.
+As an engineering artifact, this study provides a reproducible structure for
+porting a GPU solver, recording correctness, and instrumenting compute and
+communication phases. A future repeated-solve performance study should restore
+the original arrays before every measured call and should add corresponding
+CUDA Fortran result rows before making a language-to-language comparison.

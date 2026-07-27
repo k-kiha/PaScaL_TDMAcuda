@@ -1,342 +1,194 @@
-# PaScaL_TDMA 2.1 (CUDA Fortran / MPI)
+# PaScaL_TDMA 2.1 CUDA Fortran implementation
 
-This directory contains the CUDA Fortran reference implementation associated
-with the PaScaL_TDMA 2.1 Computer Physics Communications paper:
+This directory contains the CUDA Fortran + MPI implementation of the
+PaScaL_TDMA 2.1 multi-GPU tridiagonal solver. The directory name is retained
+for repository continuity; the source maintained here includes changes made
+after the version 3 publication archive, including a nonblocking-request fix
+and optional phase-level profiling support.
 
-K.-H. Kim, D. Lee, J. Lee, S. Oh, S. Lee, J.-H. Kang, and J.-I. Choi,
-"PaScaL_TDMA 2.1: A register-resident multi-GPU tridiagonal matrix solver with
-optimized communication for large-scale CFD simulations,"
-Computer Physics Communications 323 (2026) 110120.
-https://doi.org/10.1016/j.cpc.2026.110120
+For the paper, archive, repository-wide provenance, and citation information,
+see the [root README](../README.md).
 
-This directory preserves the original CUDA Fortran + MPI implementation used
-as the reference for the CUDA C++ port and the matched `../Study` drivers.
+## Features
 
-PaScaL_TDMA is a parallel tridiagonal matrix solver designed for large-scale CFD and scientific computing applications on distributed-memory GPU clusters.
+- solves many independent double-precision tridiagonal systems on GPUs;
+- decomposes the row direction across MPI ranks;
+- reduces each rank-local segment to two interface rows;
+- redistributes reduced systems with CUDA-aware `MPI_Alltoallv`;
+- exposes reusable plan, solve, profiled-solve, and cleanup procedures;
+- includes a three-dimensional z-direction example.
 
-This 2.1 package provides a **minimal, self-contained CUDA Fortran + MPI implementation** with:
+The Fortran implementation always passes device buffers to MPI. It therefore
+requires a CUDA-aware MPI implementation and does not provide a host-staging
+fallback.
 
-- A reusable **library** (`libPaScaL_TDMA.a`)
-- A **3D example** solving many independent tridiagonal systems along the **z-direction**
-- A **simple build system** following the PaScaL_TDMA 2.0 style (`Makefile` + `Makefile.inc`)
-
----
-
-## 1. Features
-
-- **Many-system TDMA on GPUs**  
-  Solves a large number of independent tridiagonal systems in parallel.
-
-- **Distributed-memory support (MPI)**  
-  1D domain decomposition in the z-direction using MPI.
-
-- **Multi-GPU support**  
-  Each MPI rank selects a GPU using `CUDAGETDEVICECOUNT` and `CUDASETDEVICE`.  
-  The implementation assumes a **CUDA-aware MPI** library.
-
-- **Two-level algorithm**
-  - Local TDMA / modified TDMA on each GPU
-  - Global reduced system solved via MPI all-to-all communication
-
-- **Simple integration**  
-  Core API:
-  ```fortran
-  call pascal_plan_create(plan, Nsys, MPI_COMM_WORLD, myrank, nprocs, nt_tdma, nt_rdtdma)
-  call pascal_solver(plan, A_d, B_d, C_d, D_d, Nsys, Nrow)
-  call pascal_plan_clean(plan)
-  ```
-
----
-
-## 2. Directory Structure
+## Directory layout
 
 ```text
-.
-├── Makefile          # Top-level build driver (lib/example/all/clean)
-├── Makefile.inc      # Common build configuration (compilers & flags)
-├── src/
-│   └── PaScaL_TDMA_cuda.f90      # Library implementation (module PaScaL_TDMA_cuda)
-├── examples/
-│   └── ex_tdma_zdirection.f90    # Example main program
-├── lib/              # (created) Static library output directory
-├── include/          # (created) Fortran module files (*.mod)
-└── run/              # (created) Example executable output directory
+Makefile                    component build targets
+Makefile.inc                checked-in compiler and CUDA flag defaults
+src/PaScaL_TDMA_cuda.f90    module and solver implementation
+examples/ex_tdma_zdirection.f90
+lib/libPaScaL_TDMA.a        generated static library
+include/*.mod               generated Fortran module files
+run/a.out                   generated example executable
 ```
 
-* **Library source**: `src/PaScaL_TDMA_cuda.f90`
-* **Example**: `examples/ex_tdma_zdirection.f90`
-* **Library output**: `lib/libPaScaL_TDMA.a`
-* **Example executable**: `run/a.out`
+## Requirements
 
----
+- NVIDIA HPC SDK with CUDA Fortran support;
+- an MPI Fortran wrapper that invokes the NVIDIA compiler;
+- CUDA-aware MPI;
+- a CUDA-capable GPU and compatible driver;
+- GNU Make.
 
-## 3. Requirements
+The checked-in `Makefile.inc` contains site-specific defaults (`FC=ftn` and
+`CUDAFLAG=-cuda -gpu=cc90,cuda12.8`). Override them on the command line or edit
+`Makefile.inc` for the target system.
 
-* **Compiler**
+## Build
 
-  * NVIDIA HPC SDK (e.g. `nvfortran` / `mpif90`)
-  * A working MPI Fortran wrapper:
-
-    * `mpif90` or `mpifort` compatible with CUDA-aware MPI
-
-* **CUDA**
-
-  * CUDA-enabled GPU
-  * CUDA toolkit compatible with the NVHPC version in use
-
-* **MPI**
-
-  * MPI implementation with CUDA-aware support (e.g. OpenMPI, MPICH with GPU support)
-
-You may need to load appropriate modules on your system, e.g.:
+From `Fortran_Original/`:
 
 ```bash
-module load cuda/XX.X
-module load nvidia_hpc_sdk/YY.Y
-module load openmpi/ZZ.Z
+make all FC=mpifort CUDAFLAG="-cuda -gpu=cc90"
 ```
 
-(adapt to your environment)
+Available targets:
 
----
+| Target | Output |
+| --- | --- |
+| `make lib` | `lib/libPaScaL_TDMA.a` and `include/*.mod` |
+| `make example` | library plus `run/a.out` |
+| `make all` | same component outputs as `make example` |
+| `make clean` | remove generated objects, modules, library contents, and executables |
+| `make veryclean` | currently identical to `make clean` |
 
-## 4. Build Instructions
+The cleanup targets retain the `lib/`, `include/`, and `run/` directories and
+preserve `run/job.sh`.
 
-All builds are driven from the **top-level directory**.
-
-### 4.1 Configure compilers and flags
-
-Edit `Makefile.inc` if needed:
-
-```make
-FC     = mpif90
-AR     = ar
-RANLIB = ranlib
-
-FLAG      = -O3
-CUDAFLAG  = -cuda
-```
-
-Examples:
-
-* Change `FC` if your MPI wrapper has a different name.
-* Add GPU architecture flags if required, e.g.:
-
-```make
-CUDAFLAG = -cuda -gpu=cc80
-```
-
-### 4.2 Build the library
+From the repository root, the equivalent component build is:
 
 ```bash
-make lib
+make fortran FC=mpifort CUDA_ARCH=90
 ```
 
-This will:
+## Run the example
 
-* Compile `src/PaScaL_TDMA_cuda.f90`
-* Place module files in `include/`
-* Create the static library:
-
-```text
-lib/libPaScaL_TDMA.a
-```
-
-### 4.3 Build the example
-
-```bash
-make example
-```
-
-This will:
-
-* Compile `examples/ex_tdma_zdirection.f90`
-* Link against `lib/libPaScaL_TDMA.a`
-* Produce the example executable:
-
-```text
-run/a.out
-```
-
-### 4.4 Build everything
-
-```bash
-make all
-```
-
-Equivalent to:
-
-```bash
-make lib
-make example
-```
-
-### 4.5 Clean
-
-```bash
-# Remove object files and modules
-make clean
-
-# Remove all build artifacts (including lib/, include/, run/)
-make veryclean
-```
-
----
-
-## 5. Running the Example
-
-The provided example `ex_tdma_zdirection.f90`:
-
-* Sets up a **3D grid**: `n1 × n2 × n3 = 64 × 64 × 2048`
-* Performs **1D domain decomposition in z** using `para`
-* Constructs a simple tridiagonal system with Dirichlet-type boundary conditions
-* Calls the PaScaL-TDMA solver on the GPU(s)
-* Prints a few sample values from the solution for each MPI rank
-
-### 5.1 Example run
-
-From the top-level directory, after `make example`:
+From `Fortran_Original/`, after building:
 
 ```bash
 mpirun -np 4 ./run/a.out
 ```
 
-Typical output (simplified):
+The example creates `64 x 64` independent systems with global row length
+`2048`, partitions the row direction across ranks, assigns each rank to
+`rank % visible_device_count`, and solves a problem whose expected solution is
+one.
 
-```text
- MPI processes:           4
- CUDA devices :           4
- Grid size    :          64          64        2048
- Subdomain z-size:        512
- Memory allocated
- Matrix system initialized
- Data copied to device
- Starting PascaL TDMA solver
- PascaL TDMA solver finished
- Rank    0--
-       0       0   1.000 ...   1.000 ...   1.000
-       1       1   1.000 ...   1.000 ...   1.000
-       2       2   1.000 ...   1.000 ...   1.000
-     ...
-```
+Avoid accidental GPU oversubscription unless the MPI placement and application
+are configured for it.
 
-* `-np 4` must not exceed the number of available GPUs unless you intentionally oversubscribe.
-* Each rank selects a GPU using:
-
-  ```fortran
-  ierr    = CUDAGETDEVICECOUNT(ngpu)
-  gpurank = mod(myrank, ngpu)
-  ierr    = CUDASETDEVICE(gpurank)
-  ```
-
----
-
-## 6. API Overview
-
-### 6.1 Module
+## Public solver interface
 
 ```fortran
 use PaScaL_TDMA_cuda
-```
 
-### 6.2 Plan type
+type(ptdma_plan_cuda)   :: plan
+type(ptdma_timing_cuda) :: timing
 
-```fortran
-type(ptdma_plan_cuda) :: plan
-```
+call pascal_plan_create(plan, nsys, comm, rank, nranks, &
+                        tdma_threads, reduced_threads)
 
-Contains:
+call pascal_solver(plan, A_d, B_d, C_d, D_d, nsys, nrow)
 
-* MPI communicator and rank info
-* Global/local sizes for reduced and transformed systems
-* Gather/scatter descriptors
-* Communication buffers and offsets
-* CUDA launch configurations
-* Device work arrays for reduced and transformed systems
+! Instrumented alternative; it follows the same numerical path but adds
+! synchronization around measured phases.
+call pascal_solver_profiled(plan, A_d, B_d, C_d, D_d, &
+                            nsys, nrow, timing)
 
-### 6.3 Plan creation
-
-```fortran
-call pascal_plan_create(plan, Nsys, MPI_COMM_WORLD, myrank, nprocs, &
-                        nthread_modithomas, nthread_reduced)
-```
-
-* `Nsys`                : Number of independent systems per rank (e.g. `n1sub * n2sub`)
-* `nthread_modithomas`  : Threads per block for local modified TDMA
-* `nthread_reduced`     : Threads per block for reduced system TDMA
-
-### 6.4 Solver
-
-```fortran
-call pascal_solver(plan, A_d, B_d, C_d, D_d, Nsys, Nrow)
-```
-
-* All arrays are **device arrays** (allocated with `device` attribute).
-* `Nrow` is the length of each tridiagonal system (local z-extent per rank).
-
-This call:
-
-* Runs the local TDMA / modified TDMA kernels
-* Performs MPI all-to-all communication
-* Solves the global reduced system
-* Updates the full solution in `D_d`
-
-### 6.5 Clean up
-
-```fortran
 call pascal_plan_clean(plan)
 ```
 
-Releases all internal buffers and descriptors associated with `plan`.
+Call `pascal_plan_clean` after the last solve and before `MPI_Finalize`.
+`pascal_setcudathread` exists in the module but is currently an empty
+placeholder; configure the two supported block sizes through
+`pascal_plan_create`.
 
----
+## Array layout and input contract
 
-## 7. Extending the Example
+The solver arguments are double-precision CUDA Fortran device arrays:
 
-To integrate PaScaL_TDMA into your own application:
+```fortran
+real(8), device :: A_d(0:nsys-1,0:nrow-1)
+real(8), device :: B_d(0:nsys-1,0:nrow-1)
+real(8), device :: C_d(0:nsys-1,0:nrow-1)
+real(8), device :: D_d(0:nsys-1,0:nrow-1)
+```
 
-1. **Follow the same domain decomposition pattern**
-   Use `para` or your own mapping to define local z-ranges per rank.
+The system index is contiguous in memory. `A`, `B`, and `C` are the lower,
+main, and upper diagonals; `D` is the right-hand side on entry and the solution
+on return.
 
-2. **Allocate your coefficient arrays on the device**
+The solve is in-place:
 
-   ```fortran
-   real*8, allocatable, device :: A_d(:,:), B_d(:,:), C_d(:,:), D_d(:,:)
-   ```
+| MPI ranks | Arrays modified |
+| --- | --- |
+| 1 | `C`, `D` |
+| more than 1 | `A`, `C`, `D` |
 
-3. **Fill these arrays with your discretized operator**
-   Build the tridiagonal coefficients and RHS for each line.
+`B` is not modified. If the same original system must be solved again, copy the
+original coefficients and right-hand side back to the device arrays before the
+next call. Reusing `plan` is supported as long as `nsys`, communicator layout,
+and thread configuration remain compatible.
 
-4. **Create a plan and call the solver**
+## Size and decomposition constraints
 
-   ```fortran
-   call pascal_plan_create(plan, Nsys, comm, myrank, nprocs, nt1, nt2)
-   call pascal_solver(plan, A_d, B_d, C_d, D_d, Nsys, Nrow)
-   call pascal_plan_clean(plan)
-   ```
+- `nsys` must be positive.
+- For more than one MPI rank, every rank-local system must contain at least two
+  rows because the modified local solver reads the first two rows.
+- The internal reduced-system distribution requires `nsys >= nranks` so that
+  every rank owns at least one reduced system.
+- The helper `para` uses balanced contiguous partitioning. A global row length
+  that is not divisible by `nranks` produces local lengths of either
+  `floor(global_nrow / nranks)` or `ceil(global_nrow / nranks)`.
 
-5. **Copy back and post-process** as needed on the host.
+For a global row length `n3`, `n3 >= 2 * nranks` is therefore required by the
+multi-rank row-length constraint.
 
----
+## Algorithm flow
 
-## 8. License and Citation
+For one rank, `pascal_solver` launches the standard many-system Thomas solver.
 
-(Adjust this section according to your actual license and publication.)
+For multiple ranks, it performs:
 
-* **License**: *To be defined* (e.g. MIT, BSD, GPL, etc.)
-* **Citation**: If you use PaScaL_TDMA or this CUDA Fortran implementation in a publication,
-  please cite the corresponding paper or repository as specified by the project maintainers.
+```text
+modified local TDMA
+  -> pack A/C/D reduced rows
+  -> CUDA-aware MPI_Alltoallv
+  -> assemble and solve transformed reduced systems
+  -> redistribute interface solutions with MPI_Alltoallv
+  -> update each full rank-local row
+```
 
----
+The regular solver is asynchronous except where communication requires device
+completion. The profiled entry point introduces additional device
+synchronization to attribute time to individual phases; it should not be
+treated as having identical overhead to `pascal_solver`.
 
-## 9. Contact / Issues
+## Integrating the library
 
-* For bug reports, questions, or contributions, please use the issue tracker of the GitHub repository where this code is hosted.
-* When reporting issues, please include:
+1. Build `lib/libPaScaL_TDMA.a` and `include/pascal_tdma_cuda.mod`.
+2. Compile the application with the module include path.
+3. Link the static library with the same CUDA Fortran and MPI toolchain.
+4. Allocate and initialize the four device arrays in the layout above.
+5. Create one plan, perform compatible solves, clean the plan, and then
+   finalize MPI.
 
-  * Compiler and MPI versions
-  * GPU model and driver version
-  * Exact compilation commands (`make` outputs)
-  * The `mpirun` command line you used
+The example Makefile demonstrates the required compile and link flags.
 
----
+## License and citation
+
+This component is distributed under the repository's [MIT License](../LICENSE).
+Please cite the PaScaL_TDMA 2.1 paper described in the
+[root citation section](../README.md#citation).

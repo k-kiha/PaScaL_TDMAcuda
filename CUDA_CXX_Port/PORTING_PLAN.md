@@ -1,119 +1,214 @@
-# PaScaL_TDMAcuda CUDA C++ Porting Plan
+# CUDA C++ porting notes and implementation contract
 
-date: 2026-06-30
-source: `../Fortran_Original/src/PaScaL_TDMA_cuda.f90`
-reference report: `../../brain/4_260630_PaScaL_TDMAcuda_analysis.md`
+- Initial port date: 2026-06-30
+- Initial C++ implementation commit:
+  `05e36c6bed3014f506868c4d6f973c40cbdd8203`
+- Fortran source: `../Fortran_Original/src/PaScaL_TDMA_cuda.f90`
+- C++ implementation: `src/pascal_tdma_cuda.cu`
 
-## 1. Porting 기준
+Fortran source SHA-256 at the 2026-07-27 documentation review:
+`141bae5a1945f5009614ce299fcb262e40cd29fd396e0b54633cfd005c9ec726`
 
-- NVIDIA가 공식 지원하는 CUDA C++ runtime API와 `nvcc`를 기준으로 한다.
-- 원본 CUDA Fortran의 알고리즘, MPI all-to-all flow, device buffer layout, column-major 2D indexing을 1차 포팅에서 보존한다.
-- 초기 포팅 작성 단계에서는 로컬 CUDA 하드웨어가 없었기 때문에 소스 작성과 정적 구조 검토를 먼저 수행했다. 이후 실제 GPU 실행 검증은 NVCC + CUDA-aware MPI + GPU 환경에서 수행하는 흐름으로 둔다.
+This document records the design contract used for the CUDA C++ port. It is a
+public implementation note, not a claim that the two language versions are
+textually identical. The current status and user instructions are documented
+in [`README.md`](README.md).
 
-## 2. 원본에서 보존할 핵심 계약
+## 1. Porting goals
 
-### 2.1 Solver flow
+The first port preserves the established numerical and communication structure
+while translating language and runtime mechanisms:
 
-원본 `pascal_solver`의 흐름을 그대로 보존한다.
+- CUDA Fortran kernels to CUDA C++ kernels;
+- Fortran device arrays to explicit CUDA allocations and flat indexing;
+- the MPI Fortran interface to the MPI C interface;
+- the Fortran plan type to a move-only RAII C++ plan;
+- the original device-buffer MPI path, plus an optional host-staging fallback.
 
-단일 MPI rank:
+The following are intentionally outside this port's scope:
+
+- replacing Thomas/modified-Thomas with PCR, CR, or another algorithm;
+- changing the two-interface-row reduction;
+- changing the two `MPI_Alltoallv` communication stages;
+- changing precision or supporting mixed precision;
+- redesigning the data layout for a C/C++ row-major application;
+- adding line-internal parallelism or unrelated performance optimizations.
+
+## 2. Preserved solver flow
+
+For one MPI rank:
 
 ```text
-tdma_many_cuda
+tdma_many
 ```
 
-복수 MPI rank:
+For multiple MPI ranks:
 
 ```text
-tdma_modified_cuda
-  -> pack Ard/Crd/Drd
+modified local TDMA
+  -> form two reduced rows per local system
+  -> pack reduced A/C/D
   -> MPI_Alltoallv
-  -> unpack Atr/Ctr/Dtr
-  -> initialize Btr
-  -> tdma_many_cuda on transformed system
-  -> pack solved Dtr
+  -> unpack transformed systems
+  -> initialize transformed B
+  -> solve the transformed reduced systems
+  -> pack their solutions
   -> MPI_Alltoallv
-  -> unpack Drd
-  -> pascal_update
+  -> unpack interface solutions
+  -> update full rank-local rows
 ```
 
-### 2.2 Layout
+This flow is represented by `solve_impl` and the CUDA kernels in
+`src/pascal_tdma_cuda.cu`.
 
-Fortran device array `A(0:Nsys-1,0:Nrow-1)`는 첫 번째 index가 contiguous인 column-major 2D layout이다. CUDA C++에서는 다음 flat indexing을 표준으로 한다.
+## 3. Layout mapping
+
+The Fortran array declaration
+
+```fortran
+real(8), device :: A(0:nsys-1,0:nrow-1)
+```
+
+has a contiguous first index. The equivalent CUDA C++ flat offset is:
 
 ```cpp
 index2(sys, row, nsys) = sys + row * nsys;
 ```
 
-예제의 3D 격자 `(i,j,k)`는 solver view에서 다음으로 해석한다.
-
-```cpp
-sys = i + j * n1;
-row = k;
-```
-
-### 2.3 Plan ownership
-
-원본 `ptdma_plan_cuda`에 해당하는 C++ type은 다음을 소유한다.
-
-- MPI communicator/rank metadata.
-- reduced arrays: `Ard/Brd/Crd/Drd`, shape `(Nsys,2)`.
-- transformed arrays: `Atr/Btr/Ctr/Dtr`, shape `(local_Nsys,2*nprocs)`.
-- all-to-all count/displacement descriptors.
-- device communication buffers.
-
-C++에서는 RAII를 적용해 `PascalTdmaPlan` destructor가 device allocations를 해제한다.
-
-## 3. MPI 전략
-
-기본 경로는 CUDA-aware MPI다.
+For the z-direction example:
 
 ```text
-device pointer -> MPI_Alltoallv -> device pointer
+sys = i + j * n1
+row = k
 ```
 
-초기 개발 환경에서는 CUDA 하드웨어와 target MPI의 CUDA-aware 지원을 직접 확인할 수 없었다. 따라서 device-buffer MPI 경로와 함께 host staging fallback을 둔다.
+This mapping is a numerical interoperability requirement. A caller whose native
+layout differs must transform its data or supply a compatible solver view.
+
+## 4. Plan ownership and lifecycle
+
+`PascalTdmaPlan` owns:
+
+- a duplicate of the supplied MPI communicator;
+- rank, rank-count, and problem-size metadata;
+- balanced reduced-system partition descriptors;
+- reduced arrays `ard`, `brd`, `crd`, and `drd`;
+- transformed arrays `atr`, `btr`, `ctr`, and `dtr`;
+- all-to-all counts and displacements;
+- packed device communication buffers;
+- CUDA launch configurations and the selected MPI buffer mode.
+
+The type is non-copyable and movable. `create` first destroys any existing
+state, then duplicates the communicator and allocates the work buffers.
+`destroy` releases CUDA storage and, while MPI is still active, frees the
+duplicated communicator. Applications should therefore destroy plans before
+`MPI_Finalize`.
+
+All ranks in the communicator must create compatible plans with the same
+`nsys` and participate in the same collective solve sequence.
+
+## 5. MPI communication modes
+
+The primary path preserves CUDA-aware MPI behavior:
+
+```text
+device buffer -> MPI_Alltoallv -> device buffer
+```
+
+The C++ port also supports:
 
 ```text
 device -> host staging -> MPI_Alltoallv -> host staging -> device
 ```
 
-선택 방법:
+Mode selection occurs when the plan is created:
 
-- 기본값: `device-direct`
-- 환경변수 `PASCAL_TDMA_MPI_MODE=host`: host staging fallback
+- unset `PASCAL_TDMA_MPI_MODE`, or any value other than `host`:
+  `MpiBufferMode::DeviceDirect`;
+- exact value `PASCAL_TDMA_MPI_MODE=host`:
+  `MpiBufferMode::HostStaging`.
 
-## 4. Build 전략
+The solver synchronizes the selected CUDA stream before communication so MPI
+does not observe incomplete pack kernels. The profiled entry point adds more
+synchronization at phase boundaries for measurement.
 
-기본 build는 `nvcc` + MPI C++ wrapper를 사용한다.
+## 6. Deliberate language adaptations
 
-- `NVCC ?= nvcc`
-- `MPICXX ?= mpicxx`
-- `CUDA_ARCH ?= 90` for the H200 validation system
-- `nvcc -ccbin $(MPICXX) ...`
+### 6.1 Pack and unpack descriptors
 
-H200 검증 환경에서는 `CUDA_ARCH=90`을 사용한다. 다른 GPU에서는 target architecture에 맞게 `CUDA_ARCH`를 조정한다.
+The Fortran kernels receive rank descriptors from device arrays. The C++ host
+loop already has the same per-rank extents and starts, so each C++ kernel launch
+receives scalar `sub0`, `sub1`, `start0`, and `start1` values. The packed region
+and index mapping remain the same.
 
-## 5. 자체 검토와 수정 사항
+### 6.2 Shared communication storage
 
-### 검토 1
+The first exchange carries three reduced arrays (`A`, `C`, and `D`), while the
+return exchange carries only the solved `D`. The C++ plan retains both the
+three-array counts (`big_counts_*`) and one-array counts (`counts_*`) and
+reuses the allocated buffers, matching the two exchange extents without an
+extra allocation.
 
-- 문제: 원본은 device gather descriptor 배열을 kernel에 넘기지만 C++에서는 host loop가 이미 rank별 subsize/start를 알고 있다.
-- 판단: C++ kernel argument를 scalar `sub0/sub1/start0/start1`로 단순화해도 pack/unpack 결과는 동일하다.
-- 수정: device gather descriptor 배열은 만들지 않는다. 대신 `launch_pack`/`launch_unpack` wrapper가 rank별 scalar descriptor를 전달한다.
+### 6.3 Resource and error handling
 
-### 검토 2
+CUDA runtime calls are checked through `PASCAL_TDMA_CUDA_CHECK`, which throws
+`CudaError`. Invalid plan state and detected size mismatches throw standard C++
+exceptions. The examples catch these errors and abort the MPI job so that one
+failed rank does not leave peers waiting in a collective.
 
-- 문제: 원본의 `BIGbuf_A/B`는 coefficient 3개를 담는 큰 buffer이지만, 두 번째 all-to-all은 solved `Dtr`만 사용한다.
-- 판단: 원본처럼 같은 buffer를 재사용하되, 두 번째 exchange에서는 minimal count/displacement를 사용한다.
-- 수정: `big_counts_*`와 `counts_*`를 모두 plan에 유지한다.
+### 6.4 Thread configuration
 
-### 검토 3
+The plan accepts separate block sizes for the rank-local and transformed
+reduced TDMA kernels. Pack dimensions are derived from the balanced system
+partition. The default public values are 128 threads for both TDMA stages.
 
-- 문제: 초기 로컬 작성 단계에서는 CUDA hardware가 없어서 correctness test를 돌릴 수 없었다.
-- 판단: CUDA runtime error check와 명확한 example을 제공하고, 실제 검증은 target GPU 환경에서 수행한다.
-- 수정: 모든 CUDA API call은 `PASCAL_TDMA_CUDA_CHECK`로 감싼다. MPI all-to-all 전 stream synchronize를 강제한다.
+## 7. In-place numerical contract
 
-### 결론
+The C++ port preserves the Fortran solver's use of caller arrays as workspace:
 
-사소한 naming 차이를 제외하면, 이번 1차 계획은 원본 알고리즘과 layout을 보존한다. 성능 최적화, line 내부 병렬화, PCR/CR 계열 변경은 이번 포팅 범위 밖으로 둔다.
+| Execution path | Modified caller arrays |
+| --- | --- |
+| one rank | `C`, `D` |
+| multiple ranks | `A`, `C`, `D` |
+
+`B` remains unchanged. A repeated solve of the same mathematical system must
+restore the original coefficient and right-hand-side arrays before each call.
+This is part of the public contract rather than an implementation accident.
+
+For multiple ranks, the local modified solver requires `nrow >= 2`, and the
+reduced-system partition requires `nsys >= nranks`. The plan is created for a
+fixed `nsys`; changing it requires recreating the plan.
+
+## 8. Verification strategy and current boundary
+
+The port was checked through:
+
+1. source-flow comparison against the CUDA Fortran implementation;
+2. identical system-contiguous layout in both examples;
+3. single-rank and multi-rank execution;
+4. expected-solution checks for both device-direct and host-staging modes;
+5. phase-level timing and rank-wise maximum reductions;
+6. multi-GPU runs on an NVIDIA H200 system.
+
+The current curated Study dataset contains 25 CUDA C++ correctness cases. The
+maximum iteration-0 absolute error is `8.860e-12`. It does not yet contain
+Fortran timing rows.
+
+The profiling drivers initialize inputs once and repeat the in-place solver.
+Therefore, their iterations after iteration 0 exercise successively modified
+arrays. Current iterations 1–9 timing can be used to inspect that execution
+protocol and its scaling, but it is not timing for repeated independent solves
+of the same original system. See [`../Study/README.md`](../Study/README.md).
+
+## 9. Maintenance rule
+
+Changes to the port should preserve, or explicitly document a change to, all of
+the following:
+
+- solver stage ordering;
+- flat array layout;
+- collective count and displacement semantics;
+- caller-array mutation behavior;
+- plan ownership and MPI lifecycle;
+- device-direct and host-staging mode selection;
+- validation scope and the exact protocol behind reported measurements.

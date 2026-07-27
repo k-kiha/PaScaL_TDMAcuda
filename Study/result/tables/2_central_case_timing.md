@@ -1,4 +1,4 @@
-| case | implementation | mode | np | total_ms | compute_ms | comm_ms | packing_ms | throughput_Mcells_s | iter0_to_stable |
+| case | implementation | mode | np | iter1_9_total_ms_mean | compute_ms_mean | comm_ms_mean | packing_ms_mean | throughput_Mcells_s | iter0_to_iter1_9_mean |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | np2_128x128x4096_device | cuda-cxx | device | 2 | 4.225 | 4.114 | 0.052 | 0.060 | 15884.7 | 10.7 |
 | np4_128x128x4096_device | cuda-cxx | device | 4 | 2.221 | 2.058 | 0.070 | 0.097 | 30214.4 | 53.0 |

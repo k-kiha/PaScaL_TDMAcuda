@@ -10,7 +10,7 @@ text{font-family:Arial,Helvetica,sans-serif;fill:#1f2933}
 .point-label{font-size:11px;fill:#243b53;font-weight:600}
 .legend{font-size:12px;fill:#243b53}
 </style>
-<text x="460.0" y="28" text-anchor="middle" class="title">Warm-up Effect: First Iteration vs Stable Mean</text>
+<text x="460.0" y="28" text-anchor="middle" class="title">First Call vs Iterations 1-9 Mean</text>
 <line x1="88" y1="408" x2="886" y2="408" class="axis"/>
 <line x1="88" y1="58" x2="88" y2="408" class="axis"/>
 <line x1="88" y1="408.0" x2="886" y2="408.0" class="grid"/>

@@ -1,4 +1,4 @@
-| case | mode | np | total_ms_mean | std_ms | cv_percent | iter0_to_stable |
+| case | mode | np | iter1_9_total_ms_mean | iter1_9_std_ms | iter1_9_cv_percent | iter0_to_iter1_9_mean |
 | --- | --- | --- | --- | --- | --- | --- |
 | np2_128x128x4096_host | host | 2 | 4.600 | 0.5746 | 12.49 | 6.9 |
 | np8_256x256x4096_device | device | 8 | 1.870 | 0.1809 | 9.67 | 112.4 |

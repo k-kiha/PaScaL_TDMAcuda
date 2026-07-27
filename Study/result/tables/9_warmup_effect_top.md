@@ -1,4 +1,4 @@
-| case | mode | np | iter0_ms | stable_mean_ms | iter0_to_stable |
+| case | mode | np | iter0_ms | iter1_9_mean_ms | iter0_to_iter1_9_mean |
 | --- | --- | --- | --- | --- | --- |
 | np8_128x128x2048_device | device | 8 | 205.105 | 0.814 | 252.1 |
 | np8_128x512x2048_device | device | 8 | 210.285 | 1.066 | 197.3 |
